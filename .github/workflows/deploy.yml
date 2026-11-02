@@ -1,0 +1,87 @@
+name: Build and deploy my application
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: wp1-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Runs deployment on the repository's actual default branch; pushes to other branches skip deployment.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, api]
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+      CONTAINER_ENVIRONMENT: ${{ vars.CONTAINER_ENVIRONMENT }}
+      FRONTEND_APP: ${{ vars.FRONTEND_APP }}
+      API_APP: ${{ vars.API_APP }}
+      ACR_SERVER: ${{ vars.ACR_SERVER }}
+      RUNTIME_IDENTITY_ID: ${{ vars.RUNTIME_IDENTITY_ID }}
+      RUNTIME_CLIENT_ID: ${{ vars.RUNTIME_CLIENT_ID }}
+      BLOB_SERVICE_URI: ${{ vars.BLOB_SERVICE_URI }}
+      BLOB_CONTAINER: ${{ vars.BLOB_CONTAINER }}
+      SERVICE: ${{ matrix.service }}
+      IMAGE_NAME: ${{ vars.ACR_SERVER }}/${{ vars.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Authenticate to registry
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push selected service
+        run: |
+          docker compose -f compose.yml build "$SERVICE"
+          docker compose -f compose.yml push "$SERVICE"
+
+      - name: Deploy selected service
+        env:
+          SQL_CONNECTION_STRING: ${{ matrix.service == 'api' && secrets.SQL_CONNECTION_STRING || '' }}
+        run: python3 scripts/deploy-app.py "$SERVICE"
+
+      - name: Check revision readiness
+        run: |
+          if [ "$SERVICE" = frontend ]; then app="$FRONTEND_APP"; else app="$API_APP"; fi
+          echo "Checking readiness for Container App: $app in resource group $RESOURCE_GROUP"
+          for attempt in $(seq 1 60); do
+            state=$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" --query properties.provisioningState -o tsv)
+            latest=$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" --query properties.latestRevisionName -o tsv)
+            ready=$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" --query properties.latestReadyRevisionName -o tsv)
+            if [ "$state" = Failed ]; then
+              echo "Azure provisioning failed for $app"
+              exit 1
+            fi
+            if [ "$state" = Succeeded ] && [ -n "$latest" ] && [ "$latest" = "$ready" ]; then
+              echo "Ready revision: $ready"
+              fqdn=$(az containerapp show -g "$RESOURCE_GROUP" -n "$app" --query properties.configuration.ingress.fqdn -o tsv)
+              echo "App FQDN: https://$fqdn"
+              exit 0
+            fi
+            echo "Attempt $attempt/60: state=$state, latest=$latest, ready=$ready. Waiting 10s..."
+            sleep 10
+          done
+          echo "Revision did not become ready within 10 minutes; inspect Container Apps logs."
+          exit 1

@@ -1,0 +1,121 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "WP1 Azure Cloud Portal";
+}
+
+<div class="container py-4">
+    <div class="p-5 mb-4 bg-light rounded-3 shadow-sm border">
+        <div class="container-fluid py-2">
+            <h1 class="display-5 fw-bold text-primary">WP1 Azure Cloud Platform</h1>
+            <p class="col-md-8 fs-5 text-muted">
+                Student Pilot Application running on <strong>Azure Container Apps (Consumption)</strong>.
+                Configured with Azure Managed Identity OIDC, Azure Blob Storage, and Azure SQL Database.
+            </p>
+            <div class="d-flex gap-2">
+                <a href="/health" class="btn btn-outline-success" target="_blank">Frontend Health Check</a>
+                <button type="button" class="btn btn-primary" onclick="checkApiHealth()">Test API Connectivity</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-primary text-white fw-bold">
+                    Frontend Environment Configuration
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Frontend App:</strong>
+                            <span class="badge bg-primary fs-6">@Model.AppName</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Environment:</strong>
+                            <span>@Model.EnvironmentName</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Container Port:</strong>
+                            <span>8080 (HTTP)</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Workload Profile:</strong>
+                            <span>Consumption (0.25 CPU, 0.5Gi)</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Azure Identity (OIDC):</strong>
+                            <span class="badge @(Model.HasIdentityConfig ? "bg-success" : "bg-secondary")">
+                                @(Model.HasIdentityConfig ? "Configured" : "Local / Default")
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <strong>Blob Storage Uploads:</strong>
+                            <span class="badge @(Model.HasBlobConfig ? "bg-success" : "bg-secondary")">
+                                @(Model.HasBlobConfig ? Model.BlobContainer : "Local / Unconfigured")
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-header bg-success text-white fw-bold">
+                    Backend API Live Status
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="apiUrlInput" class="form-label"><strong>Backend API Endpoint:</strong></label>
+                        <input type="text" class="form-control" id="apiUrlInput" value="@Model.ApiBaseUrl" />
+                    </div>
+                    <div id="apiStatusAlert" class="alert alert-secondary py-2" role="alert">
+                        Click 'Test API Connectivity' to verify status.
+                    </div>
+                    <div id="apiDetails" class="d-none">
+                        <pre class="bg-dark text-white p-2 rounded" style="font-size: 0.85rem;"><code id="apiDetailsContent"></code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function checkApiHealth() {
+        const urlInput = document.getElementById('apiUrlInput');
+        const alertBox = document.getElementById('apiStatusAlert');
+        const detailsBox = document.getElementById('apiDetails');
+        const detailsContent = document.getElementById('apiDetailsContent');
+
+        let baseUrl = urlInput.value.trim().replace(/\/$/, '');
+        alertBox.className = 'alert alert-info py-2';
+        alertBox.textContent = 'Pinging ' + baseUrl + '/health ...';
+
+        try {
+            const resp = await fetch(baseUrl + '/health');
+            if (resp.ok) {
+                const data = await resp.json();
+                alertBox.className = 'alert alert-success py-2';
+                alertBox.textContent = 'Connected! API reports Healthy (HTTP ' + resp.status + ')';
+
+                // Try fetching /api/status as well
+                try {
+                    const statusResp = await fetch(baseUrl + '/api/status');
+                    if (statusResp.ok) {
+                        const statusData = await statusResp.json();
+                        detailsContent.textContent = JSON.stringify(statusData, null, 2);
+                        detailsBox.classList.remove('d-none');
+                    }
+                } catch (_) {}
+            } else {
+                alertBox.className = 'alert alert-warning py-2';
+                alertBox.textContent = 'API responded with HTTP ' + resp.status;
+            }
+        } catch (err) {
+            alertBox.className = 'alert alert-danger py-2';
+            alertBox.textContent = 'Connection failed: ' + err.message;
+        }
+    }
+</script>
