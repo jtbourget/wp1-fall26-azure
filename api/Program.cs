@@ -120,6 +120,84 @@ catch (Exception)
     // Startup schema creation is best-effort to allow endpoints to capture authentic runtime errors
 }
 
+// Root landing endpoint (HTML for browsers, JSON for API clients)
+app.MapGet("/", (HttpContext context) =>
+{
+    var accept = context.Request.Headers.Accept.ToString();
+    if (accept.Contains("text/html"))
+    {
+        var html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>WP1 Backend API - Active</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
+                .card { max-width: 680px; margin: 2rem auto; background: #1e293b; border-radius: 12px; padding: 2rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); border: 1px solid #334155; }
+                h1 { color: #38bdf8; margin: 0; font-size: 1.75rem; }
+                .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1.25rem; }
+                .badge { background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: bold; font-size: 0.85rem; letter-spacing: 0.05em; }
+                p { color: #cbd5e1; line-height: 1.5; }
+                ul { list-style: none; padding: 0; margin: 1.5rem 0 0 0; }
+                li { margin-bottom: 0.75rem; padding: 0.85rem 1rem; background: #334155; border-radius: 8px; border-left: 4px solid #38bdf8; }
+                a { color: #60a5fa; text-decoration: none; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 1.05rem; }
+                a:hover { text-decoration: underline; color: #93c5fd; }
+                .desc { color: #94a3b8; font-size: 0.875rem; margin-top: 0.35rem; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="header">
+                    <h1>WP1 Backend API</h1>
+                    <span class="badge">ONLINE</span>
+                </div>
+                <p>Welcome to the containerized ASP.NET Core API with PostgreSQL relational persistence, structured logging telemetry, and Microsoft Azure integration.</p>
+                <h3>Available Microservice Endpoints:</h3>
+                <ul>
+                    <li>
+                        <div><a href="/health">/health</a></div>
+                        <div class="desc">Liveness & readiness probe endpoint (JSON status)</div>
+                    </li>
+                    <li>
+                        <div><a href="/api/status">/api/status</a></div>
+                        <div class="desc">Microservice runtime configuration, database host, & telemetry status</div>
+                    </li>
+                    <li>
+                        <div><a href="/api/services">/api/services</a></div>
+                        <div class="desc">Relational service records endpoint (GET to retrieve all, POST to create)</div>
+                    </li>
+                    <li>
+                        <div><a href="/api/sql-check">/api/sql-check</a></div>
+                        <div class="desc">Azure SQL connectivity verification endpoint</div>
+                    </li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        """;
+        return Results.Content(html, "text/html");
+    }
+
+    return Results.Ok(new
+    {
+        service = "wp1-api",
+        status = "Healthy",
+        environment = app.Environment.EnvironmentName,
+        message = "WP1 Backend API is online.",
+        endpoints = new
+        {
+            health = "/health",
+            status = "/api/status",
+            services = "/api/services",
+            sqlCheck = "/api/sql-check"
+        },
+        timestamp = DateTime.UtcNow
+    });
+})
+.WithName("RootPortal");
+
 // Liveness / readiness probe endpoint
 app.MapGet("/health", () => Results.Ok(new
 {
